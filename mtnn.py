@@ -3,19 +3,18 @@
 import numpy as np
 import tensorflow as tf
 from mol_feature import load_data, circular_fps
+import matplotlib.pyplot as plt
 
-input_dim = 512
+input_dim = 1024
 output_dim = 12
 hidden_l = 64
-lambda_loss = 0.05
+lambda_loss = 1.2
 batch_size = 40
-step = 20000
+step = 200000
+keepprob = 0.6
+lr = 0.005
+lr1 = 0.0005
 balance_weight = np.array([10.5, 15.3,  4.4,  9.6,  3.8,  8.4, 18.2,  3.2, 14.8, 8.7,  3.3,  9.5])
-
-[smiles, labels] = load_data('data.csv') 
-#labels = np.nan_to_num(labels)
-
-
 
 def data_statistics(Y_test):
     tvalid = np.logical_not(np.isnan(Y_test))
@@ -83,6 +82,43 @@ def accuracy(predict, label, threshold):
     return [sum_tp / (sum_tp + sum_fn), sum_fp / (sum_tn + sum_fp)]
     #return np.sum(total_true) / np.sum(valid)
     
+def ROC_curve(predict, label):
+    [tp, fp] = accuracy(predict, label, 0)
+    
+    thresh = 0.0000000002
+    for i in range(8):
+        [ttp, tfp] = accuracy(predict, label, thresh)
+        tp = np.vstack((tp, ttp))
+        fp = np.vstack((fp, tfp))
+        thresh *= 10
+        
+    for t in range(1,50):
+        thresh = t/50.
+        [ttp, tfp] = accuracy(predict, label, thresh)
+        tp = np.vstack((tp, ttp))
+        fp = np.vstack((fp, tfp))
+    
+    
+    
+    res = []
+    ave = 0.
+    for i in range(12):
+        c = auc(fp[:,i],tp[:,i])
+        ave += c
+        res.append(c)
+    
+    res.append(ave/12.)
+    return np.array(res)
+    #plt.plot(fp[:,0],tp[:,0])
+    #plt.show()
+    
+
+def auc(fp, tp):
+    result = 0.
+    for i in range(fp.shape[0]-1): 
+        result += (fp[i]-fp[i+1]) * (tp[i]+tp[i+1])/2.
+    return result
+                
 X = tf.placeholder('float', [None, input_dim])
 
 Y = tf.placeholder('float', [None, output_dim])
@@ -90,17 +126,25 @@ Y = tf.placeholder('float', [None, output_dim])
 hw1 = tf.Variable(tf.random_normal([input_dim, hidden_l], 0, 0.1))
 hb1 = tf.Variable(tf.random_normal([hidden_l], 0, 0.1))
     
-hw2 = tf.Variable(tf.random_normal([hidden_l, hidden_l], 0, 0.1))
-hb2 = tf.Variable(tf.random_normal([hidden_l], 0, 0.1))
+#hw2 = tf.Variable(tf.random_normal([hidden_l, hidden_l], 0, 0.1))
+#hb2 = tf.Variable(tf.random_normal([hidden_l], 0, 0.1))
     
-hw3 = tf.Variable(tf.random_normal([hidden_l, output_dim], 0, 0.1))
-hb3 = tf.Variable(tf.random_normal([output_dim], 0, 0.1))
+#hw3 = tf.Variable(tf.random_normal([hidden_l, hidden_l], 0, 0.1))
+#hb3 = tf.Variable(tf.random_normal([hidden_l], 0, 0.1))
+    
+hw4 = tf.Variable(tf.random_normal([hidden_l, output_dim], 0, 0.1))
+hb4 = tf.Variable(tf.random_normal([output_dim], 0, 0.1))
     
 h_layer1 = tf.nn.relu(tf.matmul(X, hw1) + hb1)
+h_layer1 = tf.nn.dropout(h_layer1, keepprob)   
+ 
+#h_layer2 = tf.nn.relu(tf.matmul(h_layer1, hw2) + hb2)
+#h_layer2 = tf.nn.dropout(h_layer2, keepprob) 
     
-h_layer2 = tf.nn.relu(tf.matmul(h_layer1, hw2) + hb2)
+#h_layer3 = tf.nn.relu(tf.matmul(h_layer2, hw3) + hb3)
+#h_layer3 = tf.nn.dropout(h_layer3, keepprob) 
     
-predict = tf.sigmoid(tf.matmul(h_layer2, hw3) + hb3)
+predict = tf.sigmoid(tf.matmul(h_layer1, hw4) + hb4)
     
 l2 = lambda_loss * sum(tf.nn.l2_loss(tf_var) for tf_var in tf.trainable_variables())
 
@@ -109,17 +153,26 @@ entropy = cross_entropy_missing_values(predict, Y)
 #entropy = -tf.reduce_sum(Y * tf.log(tf.clip_by_value(predict,1e-10,1.0)) + (1-Y) * tf.log(tf.clip_by_value(1-predict,1e-10,1.0)))
 loss = entropy + l2
 
-train_step = tf.train.AdamOptimizer(0.001).minimize(loss)
-#train_step = tf.train.GradientDescentOptimizer(0.001).minimize(loss)
-X_train = circular_fps(smiles[0:6000])
-Y_train = labels[0:6000]
+train_step1 = tf.train.AdamOptimizer(lr).minimize(loss)
+train_step2 = tf.train.GradientDescentOptimizer(lr1).minimize(loss)
+ 
+[smiles, labels] = load_data('data.csv') 
+X_train = circular_fps(smiles[0:7000])
+Y_train = labels[0:7000]
 
-X_test = circular_fps(smiles[6000:])
-Y_test = labels[6000:,:]
+X_test = circular_fps(smiles[7000:])
+Y_test = labels[7000:,:]
 
-data_statistics(labels)
-data_statistics(Y_test)
+#data_statistics(labels)
+#data_statistics(Y_test)
 
+log_path = 'logdir'
+train_writer = tf.summary.FileWriter(log_path, tf.get_default_graph())
+
+#cost_summary =  tf.summary.scalar('cross_entropy', entropy)
+#auc_summary = tf.Summary()
+
+f = open("data_mtnn.dat", "w")
 
 with tf.Session() as sess:
      tf.global_variables_initializer().run()
@@ -130,17 +183,31 @@ with tf.Session() as sess:
          
          feed_dict = {X:batch_x, Y:batch_y}
          
-         _, p, error = sess.run([train_step, predict, entropy], feed_dict=feed_dict)
+         if i < 4000:
+             _, p, error = sess.run([train_step1, predict, entropy], feed_dict=feed_dict)
+         else:
+             _, p, error = sess.run([train_step2, predict, entropy], feed_dict=feed_dict)
          
-         if i%200 == 0:
+
+         #auc_summary =  tf.summary.scalar('auc', ROC_curve(test_p, Y_test))
+         if i%20 == 0 : 
+             #ccost = cost_summary.eval(feed_dict={X: X_train, Y: Y_train})
+             train_e, train_p = sess.run([entropy, predict], feed_dict={X:X_train, Y:Y_train})
+             test_e, test_p = sess.run([entropy, predict], feed_dict={X:X_test, Y:Y_test})
+             auc_train = ROC_curve(train_p,Y_train)[-1]
+             auc_test = ROC_curve(test_p,Y_test)[-1]
+             f.write("{}, {}, {}, {}, {} \n".format(i, train_e/X_train.shape[0], auc_train, test_e/X_test.shape[0], auc_test))
+             #auc_summary.value.add(tag="auc", simple_value=ROC_curve(train_p,Y_train)[-1])
+             #train_writer.add_summary(auc_summary, i)
+             #train_writer.add_summary(ccost, i)
+         if i%2000 == 0:
              
-             _, test_p = sess.run([entropy, predict], feed_dict={X:X_test, Y:Y_test})
-             t_error = accuracy(test_p, Y_test, 0.5)
-             #print(p[0])
-             #print(batch_y[0])
+             test_e, test_p = sess.run([entropy, predict], feed_dict={X:X_test, Y:Y_test})
+             train_e, _ = sess.run([entropy, predict], feed_dict={X:X_train, Y:Y_train})
+             t_error = ROC_curve(test_p, Y_test)
              np.set_printoptions(precision=3)
              
-             print("step: {}, train error: {}, test error: ".format(i, error))
-             print("TPR: ", t_error[0])
-             print("FPR: ", t_error[1])
+             print("step: {}, train error: {}, test error: {} ".format(i, train_e/X_train.shape[0], test_e/X_test.shape[0]))
+             print(t_error)
+         
     
