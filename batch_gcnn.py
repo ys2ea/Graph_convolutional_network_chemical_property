@@ -24,7 +24,7 @@ balance_weight = np.array([10.5, 15.3,  4.4,  9.6,  3.8,  8.4, 18.2,  3.2, 14.8,
 #labels = np.nan_to_num(labels)
 
 
-
+# a quick look into the data set distribution
 def data_statistics(Y_test):
     tvalid = np.logical_not(np.isnan(Y_test))
 
@@ -35,6 +35,7 @@ def data_statistics(Y_test):
     print("Pos rate: ------", rate)
     print("weights: ", 0.5/rate)
     
+# cross_entropy loss with the ability to screen out missing labels
 def cross_entropy_missing_values(predict, label):
     valid = tf.logical_not(tf.is_nan(label))
     other = tf.zeros_like(predict)   
@@ -42,7 +43,8 @@ def cross_entropy_missing_values(predict, label):
     mlabel = tf.where(valid, label, other) 
     entropy = -balance_weight * mlabel * tf.log(tf.clip_by_value(mpredict,1e-9,1.0)) - (1-mlabel) * tf.log(tf.clip_by_value((1-predict),1e-9,1.0))
     return tf.reduce_sum(entropy)
-    
+
+# MSE loss, not used
 def mse_missing_values(predict, label):
     valid = tf.logical_not(tf.is_nan(label))    
     other = tf.zeros_like(label)
@@ -50,7 +52,8 @@ def mse_missing_values(predict, label):
     mlabel = tf.where(valid, label, other)    
     loss = tf.reduce_sum(tf.square(mpredict-mlabel))    
     return loss
-    
+
+# Find true positive, true negative, false positive, false negative rates of prediction, for all 12 targets.
 def accuracy(predict, label, threshold):
     valid = np.logical_not(np.isnan(label))
     predict_fl = np.array(np.greater(predict, threshold), dtype=float)
@@ -70,6 +73,7 @@ def accuracy(predict, label, threshold):
 
     return [sum_tp / (sum_tp + sum_fn), sum_fp / (sum_tn + sum_fp)]
     
+# Calculate AUC for all 12 targets
 def ROC_curve(predict, label):
     [tp, fp] = accuracy(predict, label, 0)
     
@@ -103,14 +107,13 @@ def auc(fp, tp):
     for i in range(fp.shape[0]-1): 
         result += (fp[i]-fp[i+1]) * (tp[i]+tp[i+1])/2.
     return result    
-    
+ 
+#Graph convolution layer, takes in atom and bond features, 
+#and a connection map C_ij indicating whether atoms i and j are bonded.   
 def graph_convolutino(atom_feature, bond_feature, connection, W, b):
     concat = tf.concat([atom_feature, bond_feature], axis=2)
     return tf.nn.relu(tf.tensordot(concat, W, axes=[[2],[0]]) + b)
 
-#def graph_convolutino(atom_feature, bond_feature, connection, W):
-#    concat = tf.concat([atom_feature, bond_feature], axis=2)
-#    return tf.nn.relu(tf.tensordot(concat, W, axes=[[2],[0]]))
 
 ##placeholder for the inputs needed: atom feature array, bond featuer array, connection map, training labels
     
@@ -146,9 +149,6 @@ fb = tf.Variable(tf.random_normal([fp_dim], 0, 0.1))
 hw1 = tf.Variable(tf.random_normal([fp_dim, hidden_l], 0, 0.1))
 hb1 = tf.Variable(tf.random_normal([hidden_l], 0, 0.1))
     
-#hw2 = tf.Variable(tf.random_normal([hidden_l, hidden_l], 0, 0.1))
-#hb2 = tf.Variable(tf.random_normal([hidden_l], 0, 0.1))
-    
 hw3 = tf.Variable(tf.random_normal([hidden_l, output_dim], 0, 0.1))
 hb3 = tf.Variable(tf.random_normal([output_dim], 0, 0.1))
     
@@ -180,7 +180,6 @@ entropy = cross_entropy_missing_values(predict, Y)
 loss = entropy + l2
 
 #calculate atom activation
-#only run this for batch size 1
 aa1 = tf.nn.relu(tf.tensordot(gcout, hw1, axes=[[2],[0]]) + hb1)
 aa2 = tf.tensordot(aa1, hw3, axes=[[2],[0]]) + hb3
 
@@ -197,7 +196,8 @@ Y_test = labels[7000:,:]
 
 #data_statistics(labels)
 #data_statistics(Y_test)
-f = open("data_gcnn.dat", "w")
+
+if save_curve : f = open("data_gcnn.dat", "w")
 idx = [i for i in range(X_train.shape[0])]
 
 with tf.Session() as sess:
@@ -214,7 +214,9 @@ with tf.Session() as sess:
              _, p, error = sess.run([train_step1, predict, entropy], feed_dict=feed_dict)
          else:
              _, p, error = sess.run([train_step2, predict, entropy], feed_dict=feed_dict)
-             
+          
+          
+         #save training and test curve if needed
          if save_curve and i%20 == 0 : 
          
              t_idx = random.sample(idx, 2500)
@@ -238,6 +240,7 @@ with tf.Session() as sess:
              print("step: {}, train error: {}, test error: {} ".format(i, error, test_e/Y_test.shape[0]))
              print(t_error)
     
+         #Calculate atoms responsible for the activating target properties. Just for the first test case
          if i==6000:
             [test_af, test_bf, test_cf] = build_batch_feature(X_test[0:1])
             
