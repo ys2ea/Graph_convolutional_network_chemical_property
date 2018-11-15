@@ -6,7 +6,7 @@ import random
 import tensorflow as tf
 from mol_feature import load_data, circular_fps, build_feature, build_batch_feature
 
-fp_dim = 128
+fp_dim = 512
 output_dim = 12
 hidden_l = 64
 lambda_loss = 0.1
@@ -133,16 +133,24 @@ cb1 = tf.Variable(tf.zeros([length_atom_feature]))
 cW2 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, length_atom_feature], 0, 0.12))
 cb2 = tf.Variable(tf.zeros([length_atom_feature]))
 
-#cW3 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, length_atom_feature], 0, 0.1))
-#cb3 = tf.Variable(tf.zeros([length_atom_feature]))
+cW3 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, length_atom_feature], 0, 0.1))
+cb3 = tf.Variable(tf.zeros([length_atom_feature]))
 
-#cW4 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, length_atom_feature], 0, 0.1))
-#cb4 = tf.Variable(tf.zeros([length_atom_feature]))
+cW4 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, length_atom_feature], 0, 0.1))
+cb4 = tf.Variable(tf.zeros([length_atom_feature]))
 
 ## create fingerprints from gc
+fW1 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, fp_dim], 0, 0.06))
+fb1 = tf.Variable(tf.zeros([fp_dim]))
 
-fW = tf.Variable(tf.random_normal([length_atom_feature, fp_dim], 0, 0.1))
-fb = tf.Variable(tf.random_normal([fp_dim], 0, 0.1))
+fW2 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, fp_dim], 0, 0.1))
+fb2 = tf.Variable(tf.zeros([fp_dim]))
+
+fW3 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, fp_dim], 0, 0.1))
+fb3 = tf.Variable(tf.zeros([fp_dim]))
+
+fW4 = tf.Variable(tf.random_normal([length_atom_feature + length_bond_feature, fp_dim], 0, 0.1))
+fb4 = tf.Variable(tf.zeros([fp_dim]))
 
 ## add another 2 fully connected layers 
 
@@ -158,13 +166,21 @@ c_layer1 = graph_convolutino(af, bf, cf, cW1, cb1)
 c_layer2 = graph_convolutino(c_layer1, bf, cf, cW2, cb2)
 #c_layer2 = tf.nn.dropout(c_layer2, keepprob)
 
-#c_layer3 = graph_convolutino(c_layer2, bf, cf, cW3)
+c_layer3 = graph_convolutino(c_layer2, bf, cf, cW3, cb3)
 #c_layer3 = tf.nn.dropout(c_layer3, keepprob)
 
-#c_layer4 = graph_convolutino(c_layer3, bf, cf, cW4)
+c_layer4 = graph_convolutino(c_layer3, bf, cf, cW4, cb4)
 #c_layer4 = tf.nn.dropout(c_layer4, keepprob)
 
-gcout = tf.nn.softmax(tf.tensordot(c_layer2, fW, axes=[[2],[0]]) + fb, axis = 2)
+c_layer1 = tf.concat([bf, c_layer1], axis=2)
+c_layer2 = tf.concat([bf, c_layer2], axis=2)
+c_layer3 = tf.concat([bf, c_layer3], axis=2)
+c_layer4 = tf.concat([bf, c_layer4], axis=2)
+
+fpout = tf.tensordot(c_layer1, fW1, axes=[[2],[0]]) + fb1 + tf.tensordot(c_layer2, fW2, axes=[[2],[0]]) + fb2 \
+        + tf.tensordot(c_layer3, fW3, axes=[[2],[0]]) + fb3 + tf.tensordot(c_layer4, fW4, axes=[[2],[0]]) + fb4
+
+gcout = tf.nn.softmax(fpout, axis = 2)
 
 fp = tf.reduce_sum(gcout, axis=1)
 

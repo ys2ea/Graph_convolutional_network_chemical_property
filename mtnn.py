@@ -14,6 +14,7 @@ step = 200000
 keepprob = 0.6
 lr = 0.005
 lr1 = 0.0005
+save_curve = False
 balance_weight = np.array([10.5, 15.3,  4.4,  9.6,  3.8,  8.4, 18.2,  3.2, 14.8, 8.7,  3.3,  9.5])
 
 def data_statistics(Y_test):
@@ -31,8 +32,6 @@ def cross_entropy_missing_values(predict, label):
     other = tf.zeros_like(predict)   
     mpredict = tf.where(valid, predict, other)
     mlabel = tf.where(valid, label, other) 
-    #entropy = tf.where(tf.is_nan(label), other, -label * tf.log(tf.clip_by_value(predict,1e-9,1.0)) \
-        #- (1-label) * tf.log(tf.clip_by_value(1-predict,1e-9,1.0))) 
     entropy = -balance_weight * mlabel * tf.log(tf.clip_by_value(mpredict,1e-9,1.0)) - (1-mlabel) * tf.log(tf.clip_by_value((1-predict),1e-9,1.0))
     return tf.reduce_sum(entropy)
     
@@ -77,10 +76,8 @@ def accuracy(predict, label, threshold):
     sum_tn = np.sum(true_neg, axis=0)
     sum_fp = np.sum(false_pos, axis=0)
     sum_fn = np.sum(false_neg, axis=0)
-    #print(predict_fl)
-    #print(label)
+
     return [sum_tp / (sum_tp + sum_fn), sum_fp / (sum_tn + sum_fp)]
-    #return np.sum(total_true) / np.sum(valid)
     
 def ROC_curve(predict, label):
     [tp, fp] = accuracy(predict, label, 0)
@@ -149,8 +146,7 @@ predict = tf.sigmoid(tf.matmul(h_layer1, hw4) + hb4)
 l2 = lambda_loss * sum(tf.nn.l2_loss(tf_var) for tf_var in tf.trainable_variables())
 
 entropy = cross_entropy_missing_values(predict, Y)
-#entropy = mse_missing_values(predict, Y)
-#entropy = -tf.reduce_sum(Y * tf.log(tf.clip_by_value(predict,1e-10,1.0)) + (1-Y) * tf.log(tf.clip_by_value(1-predict,1e-10,1.0)))
+
 loss = entropy + l2
 
 train_step1 = tf.train.AdamOptimizer(lr).minimize(loss)
@@ -163,14 +159,10 @@ Y_train = labels[0:7000]
 X_test = circular_fps(smiles[7000:])
 Y_test = labels[7000:,:]
 
-#data_statistics(labels)
-#data_statistics(Y_test)
-
 log_path = 'logdir'
 train_writer = tf.summary.FileWriter(log_path, tf.get_default_graph())
 
-#cost_summary =  tf.summary.scalar('cross_entropy', entropy)
-#auc_summary = tf.Summary()
+
 
 f = open("data_mtnn.dat", "w")
 
@@ -189,17 +181,14 @@ with tf.Session() as sess:
              _, p, error = sess.run([train_step2, predict, entropy], feed_dict=feed_dict)
          
 
-         #auc_summary =  tf.summary.scalar('auc', ROC_curve(test_p, Y_test))
-         if i%20 == 0 : 
-             #ccost = cost_summary.eval(feed_dict={X: X_train, Y: Y_train})
+         if save_curve and i%20 == 0 : 
+
              train_e, train_p = sess.run([entropy, predict], feed_dict={X:X_train, Y:Y_train})
              test_e, test_p = sess.run([entropy, predict], feed_dict={X:X_test, Y:Y_test})
              auc_train = ROC_curve(train_p,Y_train)[-1]
              auc_test = ROC_curve(test_p,Y_test)[-1]
              f.write("{}, {}, {}, {}, {} \n".format(i, train_e/X_train.shape[0], auc_train, test_e/X_test.shape[0], auc_test))
-             #auc_summary.value.add(tag="auc", simple_value=ROC_curve(train_p,Y_train)[-1])
-             #train_writer.add_summary(auc_summary, i)
-             #train_writer.add_summary(ccost, i)
+             
          if i%2000 == 0:
              
              test_e, test_p = sess.run([entropy, predict], feed_dict={X:X_test, Y:Y_test})
